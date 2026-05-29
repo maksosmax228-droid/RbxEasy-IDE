@@ -1,0 +1,91 @@
+// RbxEasy - Modern Fly Script (V2.0)
+// Профессиональный скрипт полета с использованием актуальных Constraints
+
+var players = game:GetService("Players")
+var runService = game:GetService("RunService")
+var userInput = game:GetService("UserInputService")
+var localPlayer = players.LocalPlayer
+
+var flying = false
+var speed = 60
+
+// Современные объекты для физики
+var linearVelocity = nil
+var alignOrientation = nil
+var attachment = nil
+
+func toggleFly() {
+    flying = !flying
+    var character = localPlayer.Character
+    if !character { return }
+    var hrp = character:WaitForChild("HumanoidRootPart")
+    
+    if flying {
+        // Создаем Attachment для привязки сил
+        attachment = Instance.new("Attachment")
+        attachment.Name = "FlyAttachment"
+        attachment.Parent = hrp
+        
+        // LinearVelocity вместо BodyVelocity
+        linearVelocity = Instance.new("LinearVelocity")
+        linearVelocity.MaxForce = 1000000
+        linearVelocity.VelocityConstraintMode = Enum.VelocityConstraintMode.Vector
+        linearVelocity.VectorVelocity = Vector3.new(0, 0, 0)
+        linearVelocity.Attachment0 = attachment
+        linearVelocity.Parent = hrp
+        
+        // AlignOrientation вместо BodyGyro
+        alignOrientation = Instance.new("AlignOrientation")
+        alignOrientation.MaxTorque = 1000000
+        alignOrientation.Responsiveness = 200
+        alignOrientation.Mode = Enum.OrientationControlMode.OneAttachment
+        alignOrientation.Attachment0 = attachment
+        alignOrientation.CFrame = hrp.CFrame
+        alignOrientation.Parent = hrp
+        
+        print("Полет активирован (Modern Mode)! Скорость: " + speed)
+    } else {
+        // Очистка ресурсов
+        if linearVelocity { linearVelocity:Destroy() }
+        if alignOrientation { alignOrientation:Destroy() }
+        if attachment { attachment:Destroy() }
+        print("Полет выключен.")
+    }
+}
+
+func updateFly() {
+    if !flying { return }
+    var character = localPlayer.Character
+    if !character { return }
+    var hrp = character:WaitForChild("HumanoidRootPart")
+    var camera = workspace.CurrentCamera
+    
+    var moveDir = Vector3.new(0, 0, 0)
+    
+    if userInput:IsKeyDown(Enum.KeyCode.W) { moveDir = moveDir + camera.CFrame.LookVector }
+    if userInput:IsKeyDown(Enum.KeyCode.S) { moveDir = moveDir - camera.CFrame.LookVector }
+    if userInput:IsKeyDown(Enum.KeyCode.A) { moveDir = moveDir - camera.CFrame.RightVector }
+    if userInput:IsKeyDown(Enum.KeyCode.D) { moveDir = moveDir + camera.CFrame.RightVector }
+    
+    if linearVelocity {
+        linearVelocity.VectorVelocity = moveDir * speed
+    }
+    if alignOrientation {
+        alignOrientation.CFrame = camera.CFrame
+    }
+}
+
+// Слушаем клавишу E (теперь через анонимную функцию!)
+listen(userInput.InputBegan, func(input, processed) {
+    if !processed && input.KeyCode == Enum.KeyCode.E {
+        toggleFly()
+        pipiskamamashka()
+    }
+})
+
+// Каждый кадр (тоже через анонимную функцию)
+listen(runService.RenderStepped, func() {
+    updateFly()
+})
+
+print("Скрипт загружен! Нажми 'E' чтобы взлететь (Modern V2).")

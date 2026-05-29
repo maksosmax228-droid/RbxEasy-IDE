@@ -1,0 +1,12 @@
+{
+  "Main.rbxe": {
+    "isLinked": true,
+    "isLibrary": false,
+    "bundleOrder": 0
+  },
+  "proverka.rbxe": {
+    "isLinked": true,
+    "isLibrary": true,
+    "bundleOrder": 1
+  }
+}
