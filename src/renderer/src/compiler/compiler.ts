@@ -683,7 +683,7 @@ export class Linter {
             }
         }
         
-        if (/\bwait\(/.test(lineText)) this.errors.push({ line: lineNum, col: lineText.indexOf('wait(') + 1, message: "Используйте 'task.wait()' — это стандарт индустрии Roblox.", severity: 'warning', fix: { type: 'REPLACE_TEXT', old: 'wait', new: 'task.wait' } });
+        if (/\bwait\(/.test(lineText) && !lineText.includes('task.wait(')) this.errors.push({ line: lineNum, col: lineText.indexOf('wait(') + 1, message: "Используйте 'task.wait()' — это стандарт индустрии Roblox.", severity: 'warning', fix: { type: 'REPLACE_TEXT', old: 'wait', new: 'task.wait' } });
         
         // Workspace safe access check
         const workspaceMatch = lineText.match(/\b(Workspace|game\.Workspace)\.([a-zA-Z0-9_]+)\b/);
