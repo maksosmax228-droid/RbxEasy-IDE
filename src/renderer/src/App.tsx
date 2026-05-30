@@ -3782,6 +3782,8 @@ function App(): React.JSX.Element {
     monaco.languages.setMonarchTokensProvider('rbxeasy', {
       tokenizer: {
         root: [
+          [/\/\/.*$/, 'comment'],
+          [/--.*$/, 'comment'],
           [/\b(func|var|if|else|elseif|while|for|return|true|false|nil|include|break|continue|local|function|luau)\b/, 'keyword'],
           [/\b(workspace|game|task|script|print|warn|error|wait|tick|time|Enum|Instance|Vector3|CFrame|Color3|UDim2|UDim|Ray|Rect|Region3|spawn|delay|require|getmetatable|setmetatable|type|tostring|tonumber|math|table|bit32|debug|utf8|os|coroutine|Players|ServerStorage|ReplicatedStorage|HttpService|TweenService|RunService|UserInputService|Workspace|Game|listen)\b/, 'type.identifier'],
           [/[a-zA-Z_][a-zA-Z0-9_]*(?=\s*\()/, 'function.name'], // Function calls/definitions

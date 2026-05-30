@@ -1,6 +1,6 @@
 {
   "name": "rbxeasy",
-  "version": "0.4.5-nightly",
+  "version": "0.4.5",
   "description": "An Electron application with React and TypeScript",
   "main": "./out/main/index.js",
   "author": "example.com",

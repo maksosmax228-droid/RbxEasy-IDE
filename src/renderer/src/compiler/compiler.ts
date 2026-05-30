@@ -21,9 +21,17 @@ export class Lexer {
         if (char === '\n') { this.line++; this.col = 1; } else { this.col++; }
         this.pos++; continue;
       }
-      if (this.input.startsWith('//', this.pos)) {
+      if (this.input.startsWith('...', this.pos)) {
+        tokens.push({ type: TokenType.Identifier, value: '...', line: this.line, col: this.col });
+        this.pos += 3; this.col += 3; continue;
+      }
+      if (this.input.startsWith('//', this.pos) || this.input.startsWith('--', this.pos)) {
         while (this.pos < this.input.length && this.input[this.pos] !== '\n') this.pos++;
         continue;
+      }
+      if (this.input.startsWith('..', this.pos)) {
+        tokens.push({ type: TokenType.Operator, value: '..', line: this.line, col: this.col });
+        this.pos += 2; this.col += 2; continue;
       }
       if (/[0-9]/.test(char)) { tokens.push(this.readNumber()); continue; }
       if (/[a-zA-Z_]/.test(char)) { 
@@ -64,8 +72,8 @@ export class Lexer {
         tokens.push(id); continue; 
       }
       if (char === '"' || char === "'") { tokens.push(this.readString(char)); continue; }
-      if ('+-*/=<>!&|'.includes(char)) { tokens.push(this.readOperator()); continue; }
-      if ('(){}[].,:;'.includes(char)) {
+      if ('+-*/=<>!&|~%#@?'.includes(char)) { tokens.push(this.readOperator()); continue; }
+      if ('(){}[].,:;\\'.includes(char)) {
         tokens.push({ type: TokenType.Punctuation, value: char, line: this.line, col: this.col++ });
         this.pos++; continue;
       }
@@ -94,7 +102,7 @@ export class Lexer {
   private readOperator(): Token {
     let val = this.input[this.pos++]; const start = this.col++;
     const next = this.input[this.pos];
-    if ((val === '&' && next === '&') || (val === '|' && next === '|') || (val === '!' && next === '=') || (val === '=' && next === '=') || (val === '<' && next === '=') || (val === '>' && next === '=')) {
+    if ((val === '&' && next === '&') || (val === '|' && next === '|') || (val === '!' && next === '=') || (val === '=' && next === '=') || (val === '<' && next === '=') || (val === '>' && next === '=') || (val === '~' && next === '=')) {
       val += this.input[this.pos++]; this.col++;
     }
     return { type: TokenType.Operator, value: val, line: this.line, col: start };
@@ -111,11 +119,30 @@ export interface ASTNode {
 
 export class Parser {
   private tokens: Token[]; private pos = 0;
+  public errors: LinterError[] = [];
   constructor(tokens: Token[]) { this.tokens = tokens; }
   parse(): ASTNode {
     const body: ASTNode[] = [];
     const firstToken = this.peek();
-    while (this.peek().type !== TokenType.EOF) body.push(this.parseStatement());
+    while (this.peek().type !== TokenType.EOF) {
+        try {
+            body.push(this.parseStatement());
+        } catch (e: any) {
+            this.errors.push({ line: this.peek().line, col: this.peek().col, message: e.message, severity: 'error' });
+            
+            // Attempt recovery: guarantee advancement and skip to next statement
+            if (this.pos < this.tokens.length) {
+                this.pos++;
+            }
+            
+            while (this.pos < this.tokens.length && 
+                   this.peek().type !== TokenType.EOF && 
+                   this.peek().value !== 'end' && 
+                   this.peek().value !== '}') {
+                this.pos++;
+            }
+        }
+    }
     return { type: 'Program', body, line: firstToken.line, col: firstToken.col };
   }
   private parseStatement(): ASTNode {
@@ -174,16 +201,31 @@ export class Parser {
     const startTok = this.peek();
     if (this.peek().value === 'var') this.consume('var');
     else this.consume('local');
-    const nameTok = this.consumeType(TokenType.Identifier);
-    const name = nameTok.value;
     
-    let value: ASTNode | null = null;
-    if (this.peek().value === '=') {
-      this.consume('='); 
-      value = this.parseExpression();
+    const names: string[] = [];
+    while (true) {
+        names.push(this.consumeType(TokenType.Identifier).value);
+        if (this.peek().value === ',') {
+            this.consume(',');
+        } else {
+            break;
+        }
     }
     
-    return { type: 'VariableDecl', name, value, line: startTok.line, col: startTok.col };
+    let values: ASTNode[] = [];
+    if (this.peek().value === '=') {
+      this.consume('=');
+      while (true) {
+        values.push(this.parseExpression());
+        if (this.peek().value === ',') {
+            this.consume(',');
+        } else {
+            break;
+        }
+      }
+    }
+    
+    return { type: 'VariableDecl', names, values, line: startTok.line, col: startTok.col };
   }
   private parseIf() {
     const startTok = this.peek();
@@ -297,13 +339,28 @@ export class Parser {
     return { type: 'ExpressionStatement', expression: expr, line: expr.line, col: expr.col }; 
   }
   private parseExpression(): ASTNode {
-    let left = this.parseLogicalOr();
+    return this.parseAssignment();
+  }
+
+  private parseAssignment(): ASTNode {
+    let lefts = [this.parseLogicalOr()];
+    while (this.peek().value === ',') {
+      this.consume(',');
+      lefts.push(this.parseLogicalOr());
+    }
+
     if (this.peek().value === '=') { 
       this.consume('='); 
-      const right = this.parseExpression();
-      return { type: 'Assignment', left, right, line: left.line, col: left.col }; 
+      const rights = [this.parseAssignment()];
+      while (this.peek().value === ',') {
+        this.consume(',');
+        rights.push(this.parseAssignment());
+      }
+      return { type: 'Assignment', lefts, rights, line: lefts[0].line, col: lefts[0].col }; 
     }
-    return left;
+    
+    if (!lefts || lefts.length === 0) throw new Error("Parser error: Empty assignment expression");
+    return lefts.length > 1 ? { type: 'ExpressionList', expressions: lefts, line: lefts[0].line, col: lefts[0].col } : lefts[0];
   }
   private parseLogicalOr(): ASTNode {
     let left = this.parseLogicalAnd();
@@ -367,6 +424,16 @@ export class Parser {
   }
   private parseAtom(): ASTNode {
     const t = this.peek();
+    if (this.peek().value === '{') {
+      const startTok = this.consume('{');
+      const properties: ASTNode[] = [];
+      while (this.peek().value !== '}' && this.peek().type !== TokenType.EOF) {
+          properties.push(this.parseExpression());
+          if (this.peek().value === ',') this.consume(',');
+      }
+      this.consume('}');
+      return { type: 'TableLiteral', properties, line: startTok.line, col: startTok.col };
+    }
     if (t.type === TokenType.Number) {
       const tok = this.consumeType(TokenType.Number);
       return { type: 'Literal', value: Number(tok.value), line: tok.line, col: tok.col };
@@ -515,10 +582,20 @@ const ROBLOX_GLOBALS = new Set([
   'spawn', 'delay', 'require', 'getmetatable', 'setmetatable', 'type', 'tostring', 'tonumber',
   'math', 'string', 'table', 'bit32', 'task', 'debug', 'utf8', 'os', 'coroutine', 'Players', 
   'ServerStorage', 'ReplicatedStorage', 'HttpService', 'TweenService', 'RunService', 'UserInputService',
-  'listen'
+  'listen', 'pcall', 'xpcall', 'getgenv', 'cloneref', 'sethidden', 'gethidden', 'queueteleport',
+  'httprequest', 'everyClipboard', 'firetouchinterest', 'writefile', 'readfile', 'isfile',
+  'makefolder', 'isfolder', 'hookfunction', 'hookmetamethod', 'getnamecallmethod', 'checkcaller',
+  'newcclosure', 'getgc', 'setthreadidentity', 'replicatesignal', 'getconnections', 'IY_LOADED',
+  'Services', 'MarketplaceService', 'TeleportService', 'StarterGui', 'GuiService', 'Lighting',
+  'ContextActionService', 'GroupService', 'PathService', 'SoundService', 'Teams', 'StarterPlayer',
+  'InsertService', 'ChatService', 'ProximityPromptService', 'ContentProvider', 'StatsService',
+  'MaterialService', 'AvatarEditorService', 'TextService', 'TextChatService', 'CaptureService',
+  'VoiceChatService', 'SocialService', 'PlayerGui', 'COREGUI', 'IYMouse', 'isLegacyChat',
+  'waxwritefile', 'waxreadfile', 'waxgetcustomasset'
 ]);
 
-function levenshtein(a: string, b: string): number {
+function levenshtein(a: string | undefined, b: string | undefined): number {
+  if (a === undefined || b === undefined) return 999;
   const tmp: number[][] = [];
   for (let i = 0; i <= a.length; i++) { tmp[i] = [i]; }
   for (let j = 0; j <= b.length; j++) { tmp[0][j] = j; }
@@ -584,8 +661,9 @@ export class LogicalAnalyzer {
     return errors;
   }
 
-  private findFunctionsAndCalls(node: ASTNode) {
-    if (!node) return;
+  private findFunctionsAndCalls(node: ASTNode, visited: Set<ASTNode> = new Set()) {
+    if (!node || visited.has(node)) return;
+    visited.add(node);
     
     if (node.type === 'FunctionDecl') {
       this.definedFunctions.set(node.name, node);
@@ -603,11 +681,11 @@ export class LogicalAnalyzer {
       if (Array.isArray(val)) {
         val.forEach(child => {
           if (child && typeof child === 'object' && child.type) {
-            this.findFunctionsAndCalls(child);
+            this.findFunctionsAndCalls(child, visited);
           }
         });
       } else if (val && typeof val === 'object' && val.type) {
-        this.findFunctionsAndCalls(val);
+        this.findFunctionsAndCalls(val, visited);
       }
     }
   }
@@ -628,11 +706,14 @@ export class Linter {
   private logicalAnalyzer = new LogicalAnalyzer();
 
   private extractGlobals(node: ASTNode) {
-    if (!node) return;
+    if (!node || typeof node !== 'object') return;
+    
     if (node.type === 'Program' || node.type === 'Block') {
-      node.body.forEach((s: ASTNode) => this.extractGlobals(s));
-    } else if (node.type === 'FunctionDecl' || node.type === 'VariableDecl') {
+      if (Array.isArray(node.body)) node.body.forEach((s: ASTNode) => this.extractGlobals(s));
+    } else if (node.type === 'FunctionDecl') {
       this.declare(node.name);
+    } else if (node.type === 'VariableDecl') {
+      if (Array.isArray(node.names)) node.names.forEach((name: string) => this.declare(name));
     }
   }
 
@@ -646,13 +727,14 @@ export class Linter {
     allFiles.forEach(file => {
       // Only include linked files (libraries or other parts), excluding the current file
       if (file.isLinked && file.content && file.content !== code) {
+        console.log(`[Audit] Parsing background file: ${file.name}`);
         try {
           const tokens = new Lexer(file.content).tokenize();
           const parser = new Parser(tokens);
           const ast = parser.parse();
           this.extractGlobals(ast);
         } catch (e) {
-          // Silent fail for background files
+          console.error(`[Audit] Failed parsing background file: ${file.name}`, e);
         }
       }
     });
@@ -763,16 +845,21 @@ export class Linter {
   }
 
   private analyze(node: ASTNode) {
-    if (!node) return;
+    if (!node || typeof node !== 'object') return;
+    
+    // Final robust safety check
+    if (!node.type) return;
+
     switch (node.type) {
       case 'Program':
+        if (Array.isArray(node.body)) node.body.forEach((s: ASTNode) => this.analyze(s));
+        break;
       case 'Block':
         this.enterScope();
-        node.body.forEach((s: ASTNode) => this.analyze(s));
+        if (Array.isArray(node.body)) node.body.forEach((s: ASTNode) => this.analyze(s));
         this.exitScope();
         break;
       case 'IncludeStatement':
-        // Path analysis could go here if needed
         break;
       case 'FunctionDecl':
         if (this.isDeclared(node.name)) {
@@ -780,39 +867,43 @@ export class Linter {
         }
         this.declare(node.name);
         this.enterScope();
-        node.params.forEach((p: string) => this.declare(p));
-        this.analyze(node.body);
+        if (Array.isArray(node.params)) node.params.forEach((p: string) => this.declare(p));
+        if (node.body) this.analyze(node.body);
         this.exitScope();
         break;
       case 'FunctionExpr':
         this.enterScope();
-        node.params.forEach((p: string) => this.declare(p));
-        this.analyze(node.body);
+        if (Array.isArray(node.params)) node.params.forEach((p: string) => this.declare(p));
+        if (node.body) this.analyze(node.body);
         this.exitScope();
         break;
       case 'VariableDecl':
-        if (this.isDeclaredInCurrentScope(node.name)) {
-          this.errors.push({ line: node.line, col: node.col, message: `Ошибка: Переменная '${node.name}' уже объявлена выше.`, severity: 'error' });
+        if (Array.isArray(node.names)) {
+            node.names.forEach((name: string) => {
+                if (this.isDeclaredInCurrentScope(name)) {
+                  this.errors.push({ line: node.line, col: node.col, message: `Ошибка: Переменная '${name}' уже объявлена выше.`, severity: 'error' });
+                }
+                this.declare(name);
+            });
         }
-        this.declare(node.name);
-        this.analyze(node.value);
+        if (node.value) this.analyze(node.value);
         break;
       case 'Assignment':
-        this.analyze(node.left);
-        this.analyze(node.right);
+        if (node.left && Array.isArray(node.left)) node.left.forEach((n: ASTNode) => this.analyze(n));
+        if (node.right && Array.isArray(node.right)) node.right.forEach((n: ASTNode) => this.analyze(n));
         break;
       case 'Binary':
-        this.analyze(node.left);
-        this.analyze(node.right);
-        if (node.op === '+' && 
+        if (node.left) this.analyze(node.left);
+        if (node.right) this.analyze(node.right);
+        if (node.op === '+' && node.left && node.right &&
            ((node.left.type === 'Literal' && typeof node.left.value === 'string' && typeof node.right.value === 'number') ||
             (node.right.type === 'Literal' && typeof node.right.value === 'string' && typeof node.left.value === 'number'))) {
           this.errors.push({ line: node.line, col: node.col, message: "Внимание: Попытка сложения строки и числа. В Lua/RbxEasy для этого используется оператор '..' или автоматическое приведение.", severity: 'warning' });
         }
         break;
       case 'Call':
-        this.analyze(node.callee);
-        node.args.forEach((a: ASTNode) => this.analyze(a));
+        if (node.callee) this.analyze(node.callee);
+        if (Array.isArray(node.args)) node.args.forEach((a: ASTNode) => this.analyze(a));
         break;
       case 'Identifier':
         if (!this.isDeclared(node.name)) {
@@ -827,30 +918,30 @@ export class Linter {
         }
         break;
       case 'Member':
-        this.analyze(node.obj);
+        if (node.obj) this.analyze(node.obj);
         break;
       case 'IfStatement':
-        this.analyze(node.test);
-        this.analyze(node.consequent);
+        if (node.test) this.analyze(node.test);
+        if (node.consequent) this.analyze(node.consequent);
         if (node.alternate) this.analyze(node.alternate);
         break;
       case 'WhileStatement':
-        this.analyze(node.test);
-        this.analyze(node.body);
+        if (node.test) this.analyze(node.test);
+        if (node.body) this.analyze(node.body);
         break;
       case 'ForStatement':
         this.enterScope();
-        this.analyze(node.init);
-        this.analyze(node.test);
-        this.analyze(node.update);
-        this.analyze(node.body);
+        if (node.init) this.analyze(node.init);
+        if (node.test) this.analyze(node.test);
+        if (node.update) this.analyze(node.update);
+        if (node.body) this.analyze(node.body);
         this.exitScope();
         break;
       case 'ReturnStatement':
         if (node.arg) this.analyze(node.arg);
         break;
       case 'ExpressionStatement':
-        if (node.expression.type === 'Identifier') {
+        if (node.expression && node.expression.type === 'Identifier') {
           const name = node.expression.name;
           this.errors.push({
             line: node.line,
@@ -860,10 +951,11 @@ export class Linter {
             fix: { type: 'REPLACE_TEXT', old: name, new: `${name}()` }
           });
         }
-        this.analyze(node.expression);
+        if (node.expression) this.analyze(node.expression);
         break;
     }
   }
+
 
   private findSuggestion(name: string): string | null {
     let bestMatch: string | null = null;
@@ -883,11 +975,19 @@ export class Linter {
 
   private enterScope() { this.scopes.push(new Set()); }
   private exitScope() { this.scopes.pop(); }
-  private declare(name: string) { this.scopes[this.scopes.length - 1].add(name); }
+  private declare(name: string) { 
+    console.log(`[Audit] Declaring: ${name} in scope level ${this.scopes.length - 1}`);
+    this.scopes[this.scopes.length - 1].add(name); 
+  }
   private isDeclared(name: string): boolean {
+    console.log(`[Audit] Checking declaration: ${name}. Scopes length: ${this.scopes.length}`);
     for (let i = this.scopes.length - 1; i >= 0; i--) {
-      if (this.scopes[i].has(name)) return true;
+      if (this.scopes[i].has(name)) {
+          console.log(`[Audit] Found ${name} in scope level ${i}`);
+          return true;
+      }
     }
+    console.log(`[Audit] ${name} NOT FOUND in any scope`);
     return false;
   }
   private isDeclaredInCurrentScope(name: string): boolean {
