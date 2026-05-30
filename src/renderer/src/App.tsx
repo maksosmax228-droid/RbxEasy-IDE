@@ -3796,7 +3796,7 @@ function App(): React.JSX.Element {
               '@default': 'identifier'
             }
           }],
-          [/[+\-*/=<>!&|]/, 'operator'],
+          [/[+\-*/=<>!&|~]=?/, 'operator'],
         ]
       },
       keywords: ['func', 'var', 'if', 'else', 'elseif', 'while', 'for', 'return', 'true', 'false', 'nil', 'include', 'break', 'continue', 'local', 'function', 'luau']
