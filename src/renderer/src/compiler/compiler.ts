@@ -382,7 +382,7 @@ export class Parser {
   }
   private parseBinary(): ASTNode {
     let left = this.parsePrimary();
-    while (this.peek().type === TokenType.Operator && !['&&', '||', 'and', 'or'].includes(this.peek().value)) {
+    while (this.peek().type === TokenType.Operator && !['&&', '||', 'and', 'or', '='].includes(this.peek().value)) {
       const opTok = this.consumeType(TokenType.Operator);
       const right = this.parsePrimary();
       left = { type: 'Binary', left, op: opTok.value, right, line: left.line, col: left.col };
@@ -462,7 +462,6 @@ export class Parser {
   }
   private parseFunctionExpr(): ASTNode {
     const startTok = this.peek();
-    const isRbx = startTok.value === 'func';
     this.consume(startTok.value);
     
     this.consume('(');
@@ -473,16 +472,9 @@ export class Parser {
     }
     this.consume(')');
 
-    const body = isRbx ? this.parseBlock() : this.parseLuauBody();
+    const isLuauStyle = this.peek().value !== '{';
+    const body = this.parseBlock(isLuauStyle);
     return { type: 'FunctionExpr', params, body, line: startTok.line, col: startTok.col };
-  }
-  private parseLuauBody(): ASTNode {
-    const body: ASTNode[] = [];
-    while (this.peek().value !== 'end' && this.peek().type !== TokenType.EOF) {
-        body.push(this.parseStatement());
-    }
-    this.consume('end');
-    return { type: 'Block', body, line: this.peek().line, col: this.peek().col };
   }
   private peek() { return this.tokens[this.pos]; }
   private consume(v: string) { 
@@ -505,7 +497,10 @@ export class Generator {
       case 'IncludeStatement': return `-- [Included: ${n.path}]`; // Handle actual inclusion in App.tsx
       case 'FunctionDecl': return `local function ${n.name}(${n.params.join(', ')})\n${this.genBlock(n.body)}end`;
       case 'FunctionExpr': return `function(${n.params.join(', ')})\n${this.genBlock(n.body)}end`;
-      case 'VariableDecl': return `local ${n.name}${n.value !== null ? ` = ${this.generate(n.value)}` : ''}`;
+      case 'VariableDecl': 
+        const names = n.names.join(', ');
+        const values = n.values && n.values.length > 0 ? ` = ${n.values.map(v => this.generate(v)).join(', ')}` : '';
+        return `local ${names}${values}`;
       case 'IfStatement': 
         let r = `if ${this.generate(n.test)} then\n${this.genBlock(n.consequent)}`; 
         let curr = n.alternate;
@@ -528,7 +523,7 @@ export class Generator {
       case 'BreakStatement': return 'break';
       case 'ContinueStatement': return 'continue';
       case 'ExpressionStatement': return this.generate(n.expression);
-      case 'Assignment': return `${this.generate(n.left)} = ${this.generate(n.right)}`;
+      case 'Assignment': return `${n.lefts.map(l => this.generate(l)).join(', ')} = ${n.rights.map(r => this.generate(r)).join(', ')}`;
       case 'Binary': 
         let op = n.op; 
         if (op === '+') {
@@ -551,6 +546,7 @@ export class Generator {
         return `${this.generate(n.callee)}(${n.args.map((a: any) => this.generate(a)).join(', ')})`;
       case 'Literal': if (n.value === null) return 'nil'; return typeof n.value === 'string' ? `"${n.value}"` : String(n.value);
       case 'Identifier': return n.name;
+      case 'ExpressionList': return n.expressions.map((e: any) => this.generate(e)).join(', ');
       case 'Block': return this.genBlock(n);
       default: return '';
     }
@@ -889,8 +885,8 @@ export class Linter {
         if (node.value) this.analyze(node.value);
         break;
       case 'Assignment':
-        if (node.left && Array.isArray(node.left)) node.left.forEach((n: ASTNode) => this.analyze(n));
-        if (node.right && Array.isArray(node.right)) node.right.forEach((n: ASTNode) => this.analyze(n));
+        if (node.lefts && Array.isArray(node.lefts)) node.lefts.forEach((n: ASTNode) => this.analyze(n));
+        if (node.rights && Array.isArray(node.rights)) node.rights.forEach((n: ASTNode) => this.analyze(n));
         break;
       case 'Binary':
         if (node.left) this.analyze(node.left);

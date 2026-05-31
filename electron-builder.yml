@@ -1,4 +1,4 @@
-appId: com.electron.app
+appId: com.rbxeasy.ide
 productName: RbxEasy
 directories:
   buildResources: build
@@ -14,15 +14,12 @@ asarUnpack:
 win:
   executableName: rbxeasy
 nsis:
-  artifactName: ${name}-${version}-setup.${ext}
-  shortcutName: ${productName}
-  uninstallDisplayName: ${productName}
-  createDesktopShortcut: always
-  createStartMenuShortcut: true
-  allowToChangeInstallationDirectory: true
-  oneClick: false
+  oneClick: true
   perMachine: true
+  allowToChangeInstallationDirectory: false
   allowElevation: true
+  include: build/installer.nsh
+  artifactName: ${name}-${version}-setup.${ext}
   installerIcon: build/icon.ico
   uninstallerIcon: build/icon.ico
   installerHeaderIcon: build/icon.ico
