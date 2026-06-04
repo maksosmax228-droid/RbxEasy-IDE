@@ -1,4 +1,4 @@
-# RbxEasy IDE v0.4.2
+# RbxEasy IDE v0.4.2 НА ВРЕМЯ ЗАБРОШЕН
 
 [Русский](#русский) | [English](#english)
 
